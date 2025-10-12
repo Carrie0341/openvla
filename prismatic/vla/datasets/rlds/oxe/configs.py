@@ -52,6 +52,37 @@ class ActionEncoding(IntEnum):
 
 # === Individual Dataset Configs ===
 OXE_DATASET_CONFIGS = {
+    "data_do_p": {
+        # --- 這些是我們需要補上的對應鍵 ---
+        "image_obs_keys": {
+            "primary": "image",             # 您的 builder 中定義的主攝影機
+            "secondary": None,
+            "wrist": "wrist_image",         # 您的 builder 中定義的手腕攝影機
+        },
+        "depth_obs_keys": {                 # 您的 builder 中沒有深度圖
+            "primary": None, "secondary": None, "wrist": None
+        },
+        "state_obs_keys": ["state"],        # 您的 builder 中定義的狀態欄位名
+        "state_encoding": StateEncoding.JOINT, # 根據您的 builder 描述，狀態是關節角度
+        "action_encoding": ActionEncoding.JOINT_POS, # 見下方說明
+
+        # --- 這是您原有的 features 定義，保持不變 ---
+        "features": {
+            "steps": {
+                "observation": {
+                    "image": {"shape": (64, 64, 3), "dtype": "uint8"},
+                    "wrist_image": {"shape": (64, 64, 3), "dtype": "uint8"},
+                    "state": {"shape": (10,), "dtype": "float32"},
+                },
+                "action": {"shape": (10,), "dtype": "float32"},
+                "language_instruction": {"shape": (), "dtype": "string"},
+                "language_embedding": {"shape": (512,), "dtype": "float32"},
+                'is_first': {'shape': (), 'dtype': 'bool'},
+                'is_last': {'shape': (), 'dtype': 'bool'},
+                'is_terminal': {'shape': (), 'dtype': 'bool'},
+            }
+        },
+    },
     "fractal20220817_data": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
         "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},
@@ -670,4 +701,12 @@ OXE_DATASET_CONFIGS = {
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
     },
+        "et_vla": {
+        "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
+        "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},
+        "state_obs_keys": ["state"],
+        "state_encoding": StateEncoding.POS_QUAT,
+        "action_encoding": ActionEncoding.EEF_POS,
+    },
+
 }

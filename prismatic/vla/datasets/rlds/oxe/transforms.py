@@ -840,6 +840,24 @@ def libero_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     trajectory["observation"]["gripper_state"] = trajectory["observation"]["state"][:, -2:]  # 2D gripper state
     return trajectory
 
+def et_vla_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    標準化 et_vla 資料集。
+    主要任務是將 7D 的 state 填充為 8D，以符合 POS_QUAT 編碼的期望。
+    """
+    # 原始的 state 是 7D [pos, quat(xyzw)]
+    original_state = trajectory["observation"]["state"]
+
+    # 建立一個與 state 時間步長相同、數值為 -1.0 的 placeholder 作為 gripper state
+    # -1.0 是一個中性的值，表示此維度未使用
+    gripper_placeholder = tf.fill((tf.shape(original_state)[0], 1), -1.0)
+
+    # 將原始 state 和 placeholder 沿著最後一個維度拼接，形成 8D state
+    trajectory["observation"]["state"] = tf.concat([original_state, gripper_placeholder], axis=-1)
+
+    # action 和 language_instruction 欄位名稱已符合標準，無需處理
+    return trajectory
+
 
 # === Registry ===
 OXE_STANDARDIZATION_TRANSFORMS = {
@@ -919,4 +937,5 @@ OXE_STANDARDIZATION_TRANSFORMS = {
     "libero_object_no_noops": libero_dataset_transform,
     "libero_goal_no_noops": libero_dataset_transform,
     "libero_10_no_noops": libero_dataset_transform,
+    "et_vla": et_vla_dataset_transform,
 }
