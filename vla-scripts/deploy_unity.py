@@ -13,11 +13,21 @@ deploy_unity.py
     2. 设置 serverBaseUrl 为 "http://127.0.0.1:8000"
     3. 设置 telemetryEndpoint 为 "/telemetry"
     4. 调用 Connect() 方法开始流式传输
+
+使用方法:
+    python vla-scripts/deploy_unity.py --openvla_path="checkpoint/" --composition="center" --host="0.0.0.0" --port=8000
+
+构图模式选项:
+    - rule_of_thirds: 三分构图
+    - center: 中心构图
+    - symmetry: 对称构图
+    - random: 随机模式
 """
 
 import os.path
 import base64
 import io
+import random
 
 # ruff: noqa: E402
 import json_numpy
@@ -28,7 +38,7 @@ import logging
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Literal
 
 import draccus
 import torch
@@ -43,6 +53,9 @@ from transformers import AutoModelForVision2Seq, AutoProcessor
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# 定义构图模式类型
+CompositionType = Literal["rule_of_thirds", "center", "symmetry", "random"]
 
 # === Unity 数据模型 ===
 class PoseData(BaseModel):
@@ -78,13 +91,28 @@ class ResponseData(BaseModel):
     isReset: bool = False
     isDone: bool = False
     fov: Optional[float] = None
-    pose: ResponsePose = None
+    pose: Optional[ResponsePose] = None
 
 # === Utilities ===
 SYSTEM_PROMPT = (
     "A chat between a curious user and an artificial intelligence assistant. "
     "The assistant gives helpful, detailed, and polite answers to the user's questions."
 )
+
+def get_composition_instruction(composition_type: CompositionType) -> str:
+    """根据构图类型生成相应的指令"""
+    if composition_type == "random":
+        # 随机选择一种构图
+        composition_type = random.choice(["rule_of_thirds", "center", "symmetry"])
+    
+    composition_map = {
+        "rule_of_thirds": "rule of thirds",
+        "center": "center",
+        "symmetry": "symmetrical"
+    }
+    
+    formatted_label_text = composition_map.get(composition_type, "balanced")
+    return f"Move the camera to create a {formatted_label_text} composition with the person as the main subject."
 
 def get_openvla_prompt(instruction: str, openvla_path: Union[str, Path]) -> str:
     if "v01" in openvla_path:
@@ -117,14 +145,22 @@ def action_to_camera_control(action: np.ndarray, current_pose: PoseData) -> Resp
     # 假设 action 是一个包含 6 个值的数组：[dx, dy, dz, drx, dry, drz]
     # 即相对于当前位置的增量移动
     
+    logger.info(f"Predicted action: [{', '.join([f'{a:.5f}' for a in action])}]")
+    
     if len(action) >= 6:
         return ResponsePose(
-            px=current_pose.px + action[0],
-            py=current_pose.py + action[1],
-            pz=current_pose.pz + action[2],
-            rx=current_pose.rx + action[3],
-            ry=current_pose.ry + action[4],
-            rz=current_pose.rz + action[5]
+            # px=current_pose.px + action[0],
+            # py=current_pose.py + action[1],
+            # pz=current_pose.pz + action[2],
+            # rx=current_pose.rx + action[3],
+            # ry=current_pose.ry + action[4],
+            # rz=current_pose.rz + action[5]
+            px= action[0],
+            py= action[1],
+            pz= action[2],
+            rx= action[3],
+            ry= action[4],
+            rz= action[5]
         )
     else:
         # 如果动作维度不匹配，只返回当前位姿
@@ -140,19 +176,28 @@ def action_to_camera_control(action: np.ndarray, current_pose: PoseData) -> Resp
 
 # === Server Interface ===
 class OpenVLAServer:
-    def __init__(self, openvla_path: Union[str, Path], instruction: str = "control the camera", attn_implementation: Optional[str] = "flash_attention_2") -> None:
+    def __init__(
+        self, 
+        openvla_path: Union[str, Path], 
+        composition_type: CompositionType = "rule_of_thirds",
+        attn_implementation: Optional[str] = "flash_attention_2"
+    ) -> None:
         """
         一个简单的 OpenVLA 服务器，用于与 Unity 集成控制相机。
         
         Args:
             openvla_path: OpenVLA 模型的路径
-            instruction: 用于指导模型的指令
+            composition_type: 构图类型 (rule_of_thirds, center, symmetry, random)
             attn_implementation: 注意力实现方式
         """
         self.openvla_path = openvla_path
-        self.instruction = instruction
+        self.composition_type = composition_type
+        self.instruction = get_composition_instruction(composition_type)
         self.attn_implementation = attn_implementation
         self.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+        
+        logger.info(f"Using composition type: {composition_type}")
+        logger.info(f"Generated instruction: {self.instruction}")
         
         # 初始化 FastAPI 应用
         self.app = FastAPI()
@@ -190,6 +235,11 @@ class OpenVLAServer:
             # 将 base64 编码的图像转换为 numpy 数组
             image = base64_to_image(data.cam_rgb_b64)
             
+            # 如果是随机模式，每次请求都重新生成指令
+            if self.composition_type == "random":
+                self.instruction = get_composition_instruction("random")
+                logger.info(f"Random mode: using instruction '{self.instruction}'")
+            
             # 使用 OpenVLA 模型预测动作
             prompt = get_openvla_prompt(self.instruction, self.openvla_path)
             inputs = self.processor(prompt, Image.fromarray(image).convert("RGB")).to(self.device, dtype=torch.bfloat16)
@@ -223,7 +273,7 @@ class OpenVLAServer:
 class DeployConfig:
     # fmt: off
     openvla_path: Union[str, Path] = "openvla/openvla-7b"  # HF Hub 路径或本地模型目录
-    instruction: str = "control the camera to follow the subject"  # 控制指令
+    composition: str = "rule_of_thirds"  # 构图类型: rule_of_thirds, center, symmetry, random
     
     # 服务器配置
     host: str = "0.0.0.0"  # 主机 IP 地址
@@ -234,10 +284,16 @@ class DeployConfig:
 @draccus.wrap()
 def deploy(cfg: DeployConfig) -> None:
     """部署 OpenVLA 服务器"""
-    logger.info(f"Starting OpenVLA Unity server with model: {cfg.openvla_path}")
-    logger.info(f"Using instruction: '{cfg.instruction}'")
+    # 验证构图类型
+    valid_compositions = ["rule_of_thirds", "center", "symmetry", "random"]
+    if cfg.composition not in valid_compositions:
+        logger.warning(f"Invalid composition type '{cfg.composition}'. Using default 'rule_of_thirds'.")
+        cfg.composition = "rule_of_thirds"
     
-    server = OpenVLAServer(cfg.openvla_path, cfg.instruction)
+    logger.info(f"Starting OpenVLA Unity server with model: {cfg.openvla_path}")
+    logger.info(f"Using composition type: {cfg.composition}")
+    
+    server = OpenVLAServer(cfg.openvla_path, cfg.composition)
     server.run(cfg.host, port=cfg.port)
 
 
