@@ -148,6 +148,7 @@ dmypy.json
 cache/
 data/
 logs/
+logs_*/
 tmp/
 temp
 
