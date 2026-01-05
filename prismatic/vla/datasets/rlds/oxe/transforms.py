@@ -858,6 +858,14 @@ def et_vla_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     # action 和 language_instruction 欄位名稱已符合標準，無需處理
     return trajectory
 
+def datadop_vla_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Transform for GenDoP (DataDoP VLA) dataset.
+    The dataset actions are already 7-DoF: [x, y, z, r, p, y, terminate_flag].
+    The terminate_flag is 0.0 for steps, and 1.0 for the final step.
+    """
+    return trajectory
+
 
 # === Registry ===
 OXE_STANDARDIZATION_TRANSFORMS = {
@@ -938,4 +946,6 @@ OXE_STANDARDIZATION_TRANSFORMS = {
     "libero_goal_no_noops": libero_dataset_transform,
     "libero_10_no_noops": libero_dataset_transform,
     "et_vla": et_vla_dataset_transform,
+    "datadop_vla": datadop_vla_dataset_transform,
+    "datadop_vla_test": datadop_vla_dataset_transform,
 }
